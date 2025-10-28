@@ -11,6 +11,7 @@ from .config import ProjectConfig
 from .deploy import DeployManager
 from .github_utils import GitHubManager
 from .init import InitManager
+from .loadbalancer import LoadBalancerManager
 from .manifest import ManifestManager
 from .service_account_manager import ServiceAccountManager
 
@@ -196,6 +197,28 @@ def cmd_secrets(args, config: ProjectConfig, manifest: ManifestManager) -> int:
         return 1
 
 
+def cmd_loadbalancer(args, config: ProjectConfig, manifest: ManifestManager) -> int:
+    """Handle loadbalancer command."""
+    lb_manager = LoadBalancerManager(config, manifest)
+    
+    if args.action == 'add':
+        success = lb_manager.add_to_loadbalancer(
+            path=args.path,
+            region=args.region,
+            cloud_run_service=args.service,
+            use_host_rewrite=not args.no_host_rewrite
+        )
+        return 0 if success else 1
+    
+    elif args.action == 'remove':
+        success = lb_manager.remove_from_loadbalancer(path=args.path)
+        return 0 if success else 1
+    
+    else:
+        print(f"Unknown action: {args.action}", file=sys.stderr)
+        return 1
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -222,6 +245,9 @@ Examples:
   python -m manager secrets add --name API_KEY --value abc123  # Add secret from value
   python -m manager secrets add --name API_KEY --file key.txt   # Add secret from file
   python -m manager secrets add --name API_KEY                  # Add secret (will prompt)
+  python -m manager loadbalancer add        # Add service to load balancer
+  python -m manager loadbalancer add --path /my-app  # Add with custom path
+  python -m manager loadbalancer remove     # Remove service from load balancer
         """
     )
     
@@ -337,6 +363,40 @@ Examples:
         type=str,
         help='File containing the secret value'
     )
+    
+    # Loadbalancer command
+    parser_lb = subparsers.add_parser('loadbalancer', help='Manage load balancer integration')
+    lb_subparsers = parser_lb.add_subparsers(dest='action', help='Load balancer action')
+    lb_subparsers.required = True
+    
+    lb_add = lb_subparsers.add_parser('add', help='Add service to load balancer')
+    lb_add.add_argument(
+        '--path',
+        type=str,
+        help='URL path prefix (default: /project-name)'
+    )
+    lb_add.add_argument(
+        '--region',
+        type=str,
+        help='GCP region (default: from deployment)'
+    )
+    lb_add.add_argument(
+        '--service',
+        type=str,
+        help='Cloud Run service name (default: project name)'
+    )
+    lb_add.add_argument(
+        '--no-host-rewrite',
+        action='store_true',
+        help='Disable host rewrite to Cloud Run URL'
+    )
+    
+    lb_remove = lb_subparsers.add_parser('remove', help='Remove service from load balancer')
+    lb_remove.add_argument(
+        '--path',
+        type=str,
+        help='URL path prefix to remove (default: from manifest)'
+    )
 
     args = parser.parse_args()
     
@@ -358,6 +418,7 @@ Examples:
         'config': cmd_config,
         'service-account': cmd_service_account,
         'secrets': cmd_secrets,
+        'loadbalancer': cmd_loadbalancer,
     }
     
     handler = commands.get(args.command)

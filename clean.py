@@ -10,6 +10,7 @@ from .config import ProjectConfig
 from .docker_utils import DockerManager
 from .gcp_utils import GCPManager
 from .github_utils import GitHubManager
+from .loadbalancer import LoadBalancerManager
 from .manifest import ManifestManager
 from .service_account_manager import ServiceAccountManager
 
@@ -24,6 +25,7 @@ class CleanManager:
         self.gcp = GCPManager(config)
         self.github = GitHubManager(config)
         self.service_account = ServiceAccountManager(config, manifest)
+        self.loadbalancer = LoadBalancerManager(config, manifest)
     
     def confirm_cleanup(self) -> bool:
         """Ask user to confirm cleanup with project name verification."""
@@ -33,6 +35,7 @@ class CleanManager:
         print("  - Docker images and containers")
         print("  - GCP Service Account")
         print("  - GCP Cloud Run service")
+        print("  - Load balancer configuration (if configured)")
         print("  - Local repository")
         print("")
         print(f"To confirm, please type the project name: {self.config.project_name}")
@@ -79,6 +82,17 @@ class CleanManager:
         
         # Get region from manifest or use default
         region = self.manifest.get_config("region", self.config.default_region)
+        
+        # Remove from load balancer if configured
+        if self.manifest.get_state("loadbalancer_configured"):
+            path = self.manifest.get_config("loadbalancer_path")
+            print(f"  - Load balancer path: {path}")
+            try:
+                # Skip confirmation since user already confirmed cleanup
+                self.loadbalancer.remove_from_loadbalancer(path, skip_confirmation=True)
+                print("✓ Load balancer configuration removed")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not remove load balancer config: {e}")
         
         # Delete Cloud Run service
         if self.manifest.get_state("deployed"):
