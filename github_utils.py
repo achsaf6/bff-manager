@@ -44,6 +44,22 @@ class GitHubManager:
             print(f"Error setting GitHub secret: {e}")
             return False
     
+    def set_secret_value(self, secret_name: str, secret_value: str) -> bool:
+        """Set a GitHub secret from a string value."""
+        try:
+            print(f"Setting GitHub secret: {secret_name}")
+            result = subprocess.run(
+                ["gh", "secret", "set", secret_name],
+                input=secret_value,
+                text=True,
+                check=True,
+                capture_output=True
+            )
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"Error setting GitHub secret: {e}")
+            return False
+    
     def delete_repository(self) -> bool:
         """Delete the GitHub repository."""
         repo_name = self.get_repo_name()
@@ -71,7 +87,7 @@ class GitHubManager:
             print(f"✗ Error deleting GitHub repository: {e}")
             return False
     
-    def update_cicd_config(self) -> bool:
+    def update_cicd_config(self, enable_workflow: bool = False) -> bool:
         """Update CI/CD configuration file with project-specific values."""
         if not self.config.cicd_file.exists():
             print(f"CI/CD file not found: {self.config.cicd_file}")
@@ -80,26 +96,43 @@ class GitHubManager:
         try:
             content = self.config.cicd_file.read_text()
             
-            # Update service account name
-            content = content.replace(
-                'name = "BFF_TEMPLATE_SA"',
-                f'name = "{self.config.service_account_name}"'
-            )
-            
             # Update service name
             content = content.replace(
-                'name = "bff-template-service-name"',
-                f'name = "{self.config.project_name}"'
+                'SERVICE_NAME: bff-template-service-name',
+                f'SERVICE_NAME: {self.config.project_name}'
+            )
+            
+            # Update project ID (should already be correct but ensure it)
+            content = content.replace(
+                'PROJECT_ID: marketing-innovation-450013',
+                f'PROJECT_ID: {self.config.gcp_project_id}'
             )
             
             # Update image URL
             content = content.replace(
-                'name = "bff-template-image-url"',
-                f'name = "{self.config.image_url}"'
+                'DOCKER_IMAGE_URL: bff-template-image-url',
+                f'DOCKER_IMAGE_URL: {self.config.image_url}'
             )
             
-            # Activate CI/CD (remove the if: false condition)
-            content = content.replace('name = "  if: false"', 'name = ""')
+            # Update secret name in the credentials line
+            content = content.replace(
+                'credentials_json: ${{ secrets.BFF_TEMPLATE_SA }}',
+                f'credentials_json: ${{{{ secrets.{self.config.service_account_name} }}}}'
+            )
+            
+            # Update region references
+            content = content.replace(
+                'IMAGE_REGION: europe-west4',
+                f'IMAGE_REGION: {self.config.default_region}'
+            )
+            content = content.replace(
+                'CONTAINER_REGION: europe-west4',
+                f'CONTAINER_REGION: {self.config.default_region}'
+            )
+            
+            # Activate CI/CD if requested (remove the if: false condition)
+            if enable_workflow:
+                content = content.replace('    if: false\n', '')
             
             self.config.cicd_file.write_text(content)
             print("CI/CD configuration updated")
@@ -107,4 +140,8 @@ class GitHubManager:
         except Exception as e:
             print(f"Error updating CI/CD config: {e}")
             return False
+    
+    def enable_cicd_workflow(self) -> bool:
+        """Enable the CI/CD workflow by removing the 'if: false' condition."""
+        return self.update_cicd_config(enable_workflow=True)
 

@@ -9,6 +9,7 @@ import sys
 from .clean import CleanManager
 from .config import ProjectConfig
 from .deploy import DeployManager
+from .github_utils import GitHubManager
 from .init import InitManager
 from .manifest import ManifestManager
 from .service_account_manager import ServiceAccountManager
@@ -166,6 +167,35 @@ def cmd_service_account(args, config: ProjectConfig, manifest: ManifestManager) 
         return 1
 
 
+def cmd_secrets(args, config: ProjectConfig, manifest: ManifestManager) -> int:
+    """Handle secrets command."""
+    github = GitHubManager(config)
+    
+    if args.action == 'add':
+        if not args.name:
+            print("Error: --name is required for add action", file=sys.stderr)
+            return 1
+        
+        if args.value:
+            # Set from value
+            success = github.set_secret_value(args.name, args.value)
+        elif args.file:
+            # Set from file
+            success = github.set_secret(args.name, args.file)
+        else:
+            # Prompt for value
+            print(f"Enter value for secret '{args.name}' (input will be hidden):")
+            import getpass
+            value = getpass.getpass()
+            success = github.set_secret_value(args.name, value)
+        
+        return 0 if success else 1
+    
+    else:
+        print(f"Unknown action: {args.action}", file=sys.stderr)
+        return 1
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -189,6 +219,9 @@ Examples:
   python -m manager service-account add-permissions  # Add default permissions
   python -m manager service-account add-permissions --roles roles/run.admin roles/storage.admin
   python -m manager service-account remove-permissions  # Remove default permissions
+  python -m manager secrets add --name API_KEY --value abc123  # Add secret from value
+  python -m manager secrets add --name API_KEY --file key.txt   # Add secret from file
+  python -m manager secrets add --name API_KEY                  # Add secret (will prompt)
         """
     )
     
@@ -280,6 +313,30 @@ Examples:
         nargs='+',
         help='Specific roles to remove (default: standard deployment roles)'
     )
+    
+    # Secrets command
+    parser_secrets = subparsers.add_parser('secrets', help='Manage GitHub secrets')
+    secrets_subparsers = parser_secrets.add_subparsers(dest='action', help='Secrets action')
+    secrets_subparsers.required = True
+    
+    secrets_add = secrets_subparsers.add_parser('add', help='Add a GitHub secret')
+    secrets_add.add_argument(
+        '--name',
+        type=str,
+        required=True,
+        help='Secret name (e.g., API_KEY)'
+    )
+    secrets_value_group = secrets_add.add_mutually_exclusive_group()
+    secrets_value_group.add_argument(
+        '--value',
+        type=str,
+        help='Secret value (will prompt if not provided)'
+    )
+    secrets_value_group.add_argument(
+        '--file',
+        type=str,
+        help='File containing the secret value'
+    )
 
     args = parser.parse_args()
     
@@ -300,6 +357,7 @@ Examples:
         'history': cmd_history,
         'config': cmd_config,
         'service-account': cmd_service_account,
+        'secrets': cmd_secrets,
     }
     
     handler = commands.get(args.command)

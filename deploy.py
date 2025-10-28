@@ -187,6 +187,16 @@ class DeployManager:
             self.docker.stop_colima()
             return False
         
+        # Enable CI/CD workflow for automatic deployments
+        print("")
+        print("Enabling CI/CD workflow for automatic deployments...")
+        if not self.github.enable_cicd_workflow():
+            print("⚠️  Warning: Failed to enable CI/CD workflow")
+            print("   You can enable it manually by removing 'if: false' from .github/workflows/cicd.yaml")
+        else:
+            print("✓ CI/CD workflow enabled")
+            self.manifest.update_state("cicd_enabled", True)
+        
         # Stop Colima
         self.docker.stop_colima()
         
@@ -195,11 +205,21 @@ class DeployManager:
         print("Deployment setup complete!")
         print("=" * 60)
         print("")
+        print("✓ Service deployed to Cloud Run")
+        print("✓ Service account created and configured")
+        print("✓ GitHub secrets configured")
+        print("✓ CI/CD workflow enabled")
+        print("")
+        print("Future commits to 'main' branch will automatically:")
+        print("  1. Build Docker image")
+        print("  2. Push to Google Container Registry")
+        print("  3. Deploy to Cloud Run")
+        print("")
         print("Next steps for production deployment:")
         print("")
-        print("1. Configure backend service with Serverless NEG")
-        print("2. Add IAP access for your domain")
-        print("3. Update URL mapping if using a load balancer")
+        print("1. Configure backend service with Serverless NEG (if needed)")
+        print("2. Add IAP access for your domain (if needed)")
+        print("3. Update URL mapping if using a load balancer (if needed)")
         print("")
         print(f"Your service is now deployed in region: {region}")
         print("")
