@@ -3,6 +3,7 @@ Service account management for Google Cloud Platform.
 """
 
 import subprocess
+import time
 from typing import List, Optional
 
 from .config import ProjectConfig
@@ -77,7 +78,7 @@ class ServiceAccountManager:
             return False
     
     def add_permissions(self, roles: Optional[List[str]] = None) -> bool:
-        """Add IAM roles to the service account."""
+        """Add IAM roles to the service account with retry logic."""
         if roles is None:
             roles = [
                 "roles/artifactregistry.writer",
@@ -85,25 +86,40 @@ class ServiceAccountManager:
                 "roles/iam.serviceAccountUser"
             ]
         
-        try:
-            for role in roles:
-                print(f"Adding role: {role}")
-                subprocess.run([
-                    "gcloud", "projects", "add-iam-policy-binding",
-                    self.config.gcp_project_id,
-                    f"--member=serviceAccount:{self.config.service_account_email}",
-                    f"--role={role}"
-                ], check=True)
+        # Retry configuration
+        max_retries = 5
+        base_delay = 2  # seconds
+        
+        for role in roles:
+            print(f"Adding role: {role}")
             
-            self.manifest.log_operation("add_permissions", {
-                "email": self.config.service_account_email,
-                "roles": roles
-            })
-            print("✓ Permissions added successfully")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Error adding permissions: {e}")
-            return False
+            for attempt in range(max_retries):
+                try:
+                    subprocess.run([
+                        "gcloud", "projects", "add-iam-policy-binding",
+                        self.config.gcp_project_id,
+                        f"--member=serviceAccount:{self.config.service_account_email}",
+                        f"--role={role}"
+                    ], check=True, capture_output=True, text=True)
+                    break  # Success, move to next role
+                    
+                except subprocess.CalledProcessError as e:
+                    # Check if it's a "does not exist" error
+                    if "does not exist" in e.stderr and attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff
+                        print(f"  Service account not yet propagated, retrying in {delay}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                    else:
+                        # Either it's not a propagation issue, or we've exhausted retries
+                        print(f"✗ Error adding permissions: {e.stderr if hasattr(e, 'stderr') else e}")
+                        return False
+        
+        self.manifest.log_operation("add_permissions", {
+            "email": self.config.service_account_email,
+            "roles": roles
+        })
+        print("✓ Permissions added successfully")
+        return True
     
     def remove_permissions(self, roles: Optional[List[str]] = None) -> bool:
         """Remove IAM roles from the service account."""
@@ -163,8 +179,14 @@ class ServiceAccountManager:
         print("Setting up service account...")
         
         # Create service account
+        created_new = not self.exists()
         if not self.create():
             return False
+        
+        # If we just created the account, give it a moment to propagate
+        if created_new:
+            print("Waiting for service account to propagate...")
+            time.sleep(3)
         
         # Add permissions
         if not self.add_permissions():
