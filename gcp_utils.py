@@ -93,7 +93,9 @@ class GCPManager:
                 f"--image={self.config.image_url}",
                 f"--region={region}",
                 "--platform=managed",
-                f"--project={self.config.gcp_project_id}"
+                f"--project={self.config.gcp_project_id}",
+                "--ingress=internal",
+                "--allow-unauthenticated"
             ], check=True)
             return True
         except subprocess.CalledProcessError as e:
