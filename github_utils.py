@@ -70,20 +70,38 @@ class GitHubManager:
         
         try:
             print(f"Deleting GitHub repository: {repo_name}")
+            # Try with --yes flag first (for newer versions of gh CLI)
             result = subprocess.run(
-                ["gh", "repo", "delete", repo_name, "--yes"],
+                ["gh", "repo", "delete", "--yes"],
                 capture_output=True,
                 text=True,
                 check=False
             )
             
+            # If that fails, try with --confirm flag (for older versions)
+            if result.returncode != 0:
+                print(f"Retrying with --confirm flag...")
+                result = subprocess.run(
+                    ["gh", "repo", "delete", repo_name, "--confirm"],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+            
             if result.returncode == 0:
                 print(f"✓ Repository deleted successfully")
                 return True
             else:
-                print(f"✗ Error deleting repository: {result.stderr}")
+                error_msg = result.stderr if result.stderr else result.stdout
+                print(f"✗ Error deleting repository: {error_msg}")
+                # Print full output for debugging
+                if result.stdout:
+                    print(f"  stdout: {result.stdout}")
                 return False
-        except subprocess.CalledProcessError as e:
+        except FileNotFoundError:
+            print("✗ GitHub CLI (gh) is not installed or not available in PATH")
+            return False
+        except Exception as e:
             print(f"✗ Error deleting GitHub repository: {e}")
             return False
     
