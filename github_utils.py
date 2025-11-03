@@ -105,7 +105,7 @@ class GitHubManager:
             print(f"✗ Error deleting GitHub repository: {e}")
             return False
     
-    def update_cicd_config(self, enable_workflow: bool = False) -> bool:
+    def update_cicd_config(self) -> bool:
         """Update CI/CD configuration file with project-specific values."""
         if not self.config.cicd_file.exists():
             print(f"CI/CD file not found: {self.config.cicd_file}")
@@ -148,9 +148,8 @@ class GitHubManager:
                 f'CONTAINER_REGION: {self.config.default_region}'
             )
             
-            # Activate CI/CD if requested (remove the if: false condition)
-            if enable_workflow:
-                content = content.replace('    if: false\n', '')
+            # Activate CI/CD 
+            content = content.replace('    if: false\n', '')
             
             self.config.cicd_file.write_text(content)
             print("CI/CD configuration updated")
@@ -158,8 +157,3 @@ class GitHubManager:
         except Exception as e:
             print(f"Error updating CI/CD config: {e}")
             return False
-    
-    def enable_cicd_workflow(self) -> bool:
-        """Enable the CI/CD workflow by removing the 'if: false' condition."""
-        return self.update_cicd_config(enable_workflow=True)
-
