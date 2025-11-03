@@ -94,9 +94,24 @@ class LoadBalancerManager:
             print(f"Error creating OAuth client: {e}")
             return None
     
+    def _get_security_policy_name(self, backend_name: Optional[str] = None) -> str:
+        """Generate a security policy name that complies with GCP's 63 character limit."""
+        backend_name = backend_name or f"{self.config.project_name}-backend"
+        # Use shorter prefix to ensure we stay under 63 chars
+        policy_name = f"sp-{backend_name}"
+        # Ensure it doesn't exceed 63 characters (GCP limit)
+        if len(policy_name) > 63:
+            # Truncate backend name if needed (sp- prefix is 3 chars, so backend can be max 60)
+            max_backend_len = 60
+            truncated_backend = backend_name[:max_backend_len]
+            # Ensure it doesn't end with a hyphen (GCP requirement)
+            truncated_backend = truncated_backend.rstrip('-')
+            policy_name = f"sp-{truncated_backend}"
+        return policy_name
+    
     def create_security_policy(self) -> bool:
         """Create a Cloud Armor security policy with rate limiting."""
-        policy_name = f"default-security-policy-for-backend-service-{self.config.project_name}-backend"
+        policy_name = self._get_security_policy_name()
         
         try:
             # Check if policy already exists
@@ -144,7 +159,7 @@ class LoadBalancerManager:
         """Create a backend service with IAP enabled."""
         backend_name = f"{self.config.project_name}-backend"
         neg_name = f"{self.config.project_name}-neg"
-        policy_name = f"default-security-policy-for-backend-service-{backend_name}"
+        policy_name = self._get_security_policy_name(backend_name)
         
         try:
             # Check if backend service already exists
@@ -480,7 +495,7 @@ class LoadBalancerManager:
         path = path or self.manifest.get_config("loadbalancer_path") or f"/{self.config.project_name}"
         backend_name = f"{self.config.project_name}-backend"
         neg_name = f"{self.config.project_name}-neg"
-        policy_name = f"default-security-policy-for-backend-service-{backend_name}"
+        policy_name = self._get_security_policy_name(backend_name)
         region = self.manifest.get_config("region") or self.config.default_region
         
         if not skip_confirmation:
