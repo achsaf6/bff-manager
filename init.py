@@ -2,8 +2,12 @@
 Local development initialization.
 """
 
+import platform
+import shutil
 import subprocess
+import sys
 from pathlib import Path
+from typing import Tuple
 
 from .config import ProjectConfig
 from .manifest import ManifestManager
@@ -15,6 +19,200 @@ class InitManager:
     def __init__(self, config: ProjectConfig, manifest: ManifestManager):
         self.config = config
         self.manifest = manifest
+        self.is_mac = platform.system() == "Darwin"
+    
+    def check_command(self, command: str) -> bool:
+        """Check if a command is available in PATH."""
+        return shutil.which(command) is not None
+    
+    def check_python_version(self) -> Tuple[bool, str]:
+        """Check if Python version is >= 3.10."""
+        try:
+            version = sys.version_info
+            if version.major >= 3 and version.minor >= 10:
+                return True, f"{version.major}.{version.minor}.{version.micro}"
+            return False, f"{version.major}.{version.minor}.{version.micro}"
+        except Exception:
+            return False, "unknown"
+    
+    def install_with_homebrew(self, package: str) -> bool:
+        """Install a package using Homebrew (Mac only)."""
+        if not self.is_mac:
+            return False
+        
+        if not self.check_command("brew"):
+            print(f"  Homebrew not found. Please install Homebrew first:")
+            print(f"    /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"")
+            return False
+        
+        try:
+            print(f"  Installing {package} with Homebrew...")
+            subprocess.run(["brew", "install", package], check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"  Failed to install {package}: {e}")
+            return False
+    
+    def install_uv(self) -> bool:
+        """Install uv Python package manager."""
+        if self.check_command("uv"):
+            return True
+        
+        print("  uv not found. Attempting to install...")
+        
+        if self.is_mac:
+            # Try Homebrew first
+            if self.install_with_homebrew("uv"):
+                return True
+        
+        # Fallback to official installer
+        try:
+            print("  Installing uv using official installer...")
+            result = subprocess.run(
+                "curl -LsSf https://astral.sh/uv/install.sh | sh",
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            # After installation, check if uv is now available
+            # May need to reload PATH, but at least verify installation attempted
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"  Failed to install uv: {e}")
+            print("  Please install uv manually:")
+            print("    curl -LsSf https://astral.sh/uv/install.sh | sh")
+            return False
+    
+    def check_and_install_dependencies(self) -> bool:
+        """Check for required dependencies and offer to install missing ones."""
+        print("Checking dependencies...")
+        print("")
+        
+        missing_required = []
+        
+        # Check Git
+        if not self.check_command("git"):
+            missing_required.append(("git", "Git version control", "brew install git"))
+        else:
+            print("✓ git found")
+        
+        # Check Python
+        python_ok, python_version = self.check_python_version()
+        if not python_ok:
+            missing_required.append(("python", f"Python >=3.10 (found: {python_version})", "brew install python@3.11"))
+        else:
+            print(f"✓ Python {python_version} found")
+        
+        # Check uv
+        if not self.check_command("uv"):
+            missing_required.append(("uv", "uv Python package manager", "curl -LsSf https://astral.sh/uv/install.sh | sh"))
+        else:
+            print("✓ uv found")
+        
+        # Check Node.js/npm
+        if not self.check_command("node"):
+            missing_required.append(("node", "Node.js", "brew install node"))
+        else:
+            try:
+                node_version = subprocess.run(
+                    ["node", "--version"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                ).stdout.strip()
+                print(f"✓ Node.js {node_version} found")
+            except Exception:
+                print("✓ Node.js found")
+        
+        if not self.check_command("npm"):
+            missing_required.append(("npm", "npm package manager", "brew install node"))
+        else:
+            print("✓ npm found")
+        
+        print("")
+        
+        # Handle missing required dependencies
+        if missing_required:
+            print("⚠️  Missing required dependencies:")
+            for cmd, desc, install_cmd in missing_required:
+                print(f"  - {cmd}: {desc}")
+            print("")
+            
+            if self.is_mac:
+                response = input("Would you like to install missing dependencies automatically? (y/N): ")
+                if response.lower() in ['y', 'yes']:
+                    for cmd, desc, install_cmd in missing_required:
+                        print(f"\nInstalling {cmd}...")
+                        if cmd == "uv":
+                            if not self.install_uv():
+                                print(f"Please install {cmd} manually: {install_cmd}")
+                                return False
+                        elif cmd == "python":
+                            if not self.install_with_homebrew("python@3.11"):
+                                print(f"Please install {cmd} manually: {install_cmd}")
+                                return False
+                        elif cmd == "node":
+                            if not self.install_with_homebrew("node"):
+                                print(f"Please install {cmd} manually: {install_cmd}")
+                                return False
+                        elif cmd == "git":
+                            if not self.install_with_homebrew("git"):
+                                print(f"Please install {cmd} manually: {install_cmd}")
+                                return False
+                    print("")
+                    # Re-check after installation
+                    return self.check_and_install_dependencies()
+                else:
+                    print("Please install the missing dependencies manually:")
+                    for cmd, desc, install_cmd in missing_required:
+                        print(f"  {install_cmd}")
+                    return False
+            else:
+                print("Please install the missing dependencies manually:")
+                for cmd, desc, install_cmd in missing_required:
+                    print(f"  {install_cmd}")
+                return False
+        
+        return True
+    
+    def check_dev_dependencies(self) -> bool:
+        """Check for development dependencies (for deployment)."""
+        print("Checking development dependencies...")
+        print("")
+        
+        missing_dev = []
+        
+        if not self.check_command("docker"):
+            missing_dev.append(("docker", "Docker", "brew install --cask docker"))
+        else:
+            print("✓ docker found")
+        
+        if not self.check_command("colima"):
+            missing_dev.append(("colima", "Colima (Docker runtime for Mac)", "brew install colima"))
+        else:
+            print("✓ colima found")
+        
+        if not self.check_command("gcloud"):
+            missing_dev.append(("gcloud", "Google Cloud SDK", "brew install --cask google-cloud-sdk"))
+        else:
+            print("✓ gcloud found")
+        
+        if not self.check_command("gh"):
+            missing_dev.append(("gh", "GitHub CLI", "brew install gh"))
+        else:
+            print("✓ gh found")
+        
+        print("")
+        
+        if missing_dev:
+            print("ℹ️  Development dependencies not found (needed for deployment):")
+            for cmd, desc, install_cmd in missing_dev:
+                print(f"  - {cmd}: {desc}")
+            print("  You can install these later if needed for deployment.")
+            print("")
+        
+        return True
     
     def update_project_files(self) -> bool:
         """Update project name in configuration files."""
@@ -206,6 +404,11 @@ export default App
             response = input("Do you want to re-initialize? (y/N): ")
             if response.lower() not in ['y', 'yes']:
                 return False
+        
+        # Check and install dependencies
+        if not self.check_and_install_dependencies():
+            print("✗ Dependency check failed. Please install missing dependencies and try again.")
+            return False
         
         # Create .env file
         self.config.ensure_env_file()
